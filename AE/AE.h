@@ -47,7 +47,7 @@ typedef ObjectData* (__thiscall* GET_OBJECT_FUNC)(u32* Id);
 #define AE_BUILD 195
 #define GLOBAL_PTR (uint8_t**)0x743EB0 // after ref to string containing "Launching"
 #define GLOBAL_SPELLS (Spells**)0x7A4AB0 // passed to rune function
-#define GLOBAL_MANAGER (ObjectDataManager**)0x744074 // a few lines above "Send frequency" string
+#define GLOBAL_MANAGER (ObjectDataManager**)0x747F14 // a few lines above "Send frequency" string
 #define GLOBAL_ITEMS (Items**)0x7A4A20 // right above "Initialized Spell Manager" string
 #define GLOBAL_GET_OBJECT (GET_OBJECT_FUNC)0x408C00
 #define XOR_KEY_OFFSET 0x4004C // offset used for key in xor function that calls net
