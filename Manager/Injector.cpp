@@ -48,10 +48,6 @@ bool g_Mods[] = {
 #undef MOD
 };
 
-// Command-line flags
-bool g_SilentMode = false;
-bool g_AutoRuneOnly = false;
-
 // remember to close handle if not null (mod not boosting)
 static HANDLE CheckModNotEnabledHandle(u32 Pid, int ModId)
 {
@@ -366,90 +362,8 @@ void InlineHook(u8* Pattern, u8 PatternLen, void* Hook, u32 FixupValue)
     }
 }
 
-// Parse command-line arguments
-void ParseCommandLine(PSTR lpCmdLine)
-{
-    if (strstr(lpCmdLine, "/autorune"))
-    {
-        g_AutoRuneOnly = true;
-        // Find the AutoRune mod index and enable only it
-        int i = 0;
-#define MOD(Name) if (strcmp(#Name, "AutoRune") == 0) g_Mods[i] = true; else if (g_AutoRuneOnly) g_Mods[i] = false; i++;
-#include <ModList.txt>
-#undef MOD
-    }
-    
-    if (strstr(lpCmdLine, "/silent"))
-    {
-        g_SilentMode = true;
-    }
-}
-
-// Silent mode injection for background operation
-int RunSilentMode()
-{
-    COM com;
-    WMI wmi(com);
-    ProcessCreation newProcesses(wmi);
-    LONG pid;
-    HANDLE snapshot;
-    PROCESSENTRY32W process;
-    
-    // Inject into existing clients
-    snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (INVALID_HANDLE_VALUE != snapshot)
-    {
-        process.dwSize = sizeof(process);
-        Process32FirstW(snapshot, &process);
-        
-        do
-        {
-            if (!wcscmp(process.szExeFile, TARGET_IMAGE_NAME))
-            {
-                DoInjection(process.th32ProcessID, TARGET_IMAGE_NAME, g_Mods, false);
-                
-                // Mark mods as enabled
-                int i = 0;
-#define MOD(Name) if (g_Mods[i]) MarkModEnabled(process.th32ProcessID, i); i++;
-#include <ModList.txt>
-#undef MOD
-            }
-        } while (Process32NextW(snapshot, &process));
-        
-        CloseHandle(snapshot);
-    }
-    
-    // Monitor for new processes
-    while (true)
-    {
-        pid = newProcesses.CheckForImageName(TARGET_IMAGE_NAME);
-        if (-1 != pid)
-        {
-            DoInjection(pid, TARGET_IMAGE_NAME, g_Mods, true);
-            
-            int i = 0;
-#define MOD(Name) if (g_Mods[i]) MarkModEnabled(pid, i); i++;
-#include <ModList.txt>
-#undef MOD
-        }
-        
-        Sleep(1000); // Check every second
-    }
-    
-    return 0;
-}
-
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, int nCmdShow)
 {
-    // Parse command-line arguments
-    ParseCommandLine(lpCmdLine);
-    
-    // If running in silent mode, skip the GUI entirely
-    if (g_SilentMode)
-    {
-        return RunSilentMode();
-    }
-    
     COM com;
     WMI wmi(com);
     ProcessCreation newProcesses(wmi);
@@ -457,6 +371,68 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     LONG pid;
     HANDLE snapshot;
     PROCESSENTRY32W process;
+
+    // Check for command-line arguments
+    if (strlen(lpCmdLine) > 0) {
+        if (strstr(lpCmdLine, "/autorune")) {
+            // Enable only AutoRune (index 2)
+            memset(g_Mods, 0, sizeof(g_Mods));
+            g_Mods[0] = true; // AutoRune is at index 0
+            
+            // First, inject into all currently running game instances
+            snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if (INVALID_HANDLE_VALUE != snapshot) {
+                process.dwSize = sizeof(process);
+                Process32FirstW(snapshot, &process);
+                
+                do {
+                    if (!wcscmp(process.szExeFile, TARGET_IMAGE_NAME)) {
+                        DoInjection(process.th32ProcessID, TARGET_IMAGE_NAME, g_Mods, false);
+                        MarkModEnabled(process.th32ProcessID, 2);
+                    }
+                } while (Process32NextW(snapshot, &process));
+                
+                CloseHandle(snapshot);
+            }
+            
+            // If /silent is present, keep monitoring for new processes
+            if (strstr(lpCmdLine, "/silent")) {
+                // Run silently in background, monitoring for new game instances
+                while (true) {
+                    // Check for new game processes
+                    pid = newProcesses.CheckForImageName(TARGET_IMAGE_NAME);
+                    if (-1 != pid) {
+                        DoInjection(pid, TARGET_IMAGE_NAME, g_Mods, true);
+                        MarkModEnabled(pid, 2);
+                    }
+                    
+                    // Check if any game is still running
+                    bool gameRunning = false;
+                    snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+                    if (INVALID_HANDLE_VALUE != snapshot) {
+                        process.dwSize = sizeof(process);
+                        Process32FirstW(snapshot, &process);
+                        do {
+                            if (!wcscmp(process.szExeFile, TARGET_IMAGE_NAME)) {
+                                gameRunning = true;
+                                break;
+                            }
+                        } while (Process32NextW(snapshot, &process));
+                        CloseHandle(snapshot);
+                    }
+                    
+                    // Exit if no game is running
+                    if (!gameRunning) {
+                        return 0;  // Exit silently
+                    }
+                    
+                    Sleep(1000); // Check every second
+                }
+            }
+            
+            return 0; // Exit after injection if not silent
+        }
+    }
 
     const int windowWidth = 300;
     const int windowHeight = 110 + ((sizeof(g_Mods) + 1) / 2) * 50;
@@ -528,10 +504,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
 
         int i = 0;
         bool temp;
-#define MOD(Name) temp = g_Mods[i]; \
-raylib::GuiCheckBox({ (i%2==1) * 135.0f + 35, (i / 2) * 50.0f + 45, 35, 35 }, ""#Name, &temp); \
-if (!boosting) g_Mods[i] = temp; i++;
-        #include <ModList.txt>
+#define MOD(Name) temp = raylib::GuiCheckBox({ (i%2==1) * 135.0f + 35, (i / 2) * 50.0f + 45, 35, 35 }, ""#Name, &g_Mods[i]); \
+i++;
+         #include <ModList.txt>
 #undef MOD
 
         // update which mods are currently enabled across the system
@@ -571,8 +546,7 @@ if (!boosting) g_Mods[i] = temp; i++;
         }
         
         auto wasBoosting = boosting;
-        raylib::GuiToggle({80,((i/2) + (i%2))*50.0f + 50,140,40}, toggleText, &boosting);
-
+        boosting = raylib::GuiToggle({80,((i/2) + (i%2))*50.0f + 50,140,40}, toggleText, &boosting);
         if (!wasBoosting && boosting)
         {
             // inject into existing clients
