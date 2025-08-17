@@ -372,6 +372,68 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
     HANDLE snapshot;
     PROCESSENTRY32W process;
 
+    // Check for command-line arguments
+    if (strlen(lpCmdLine) > 0) {
+        if (strstr(lpCmdLine, "/autorune")) {
+            // Enable only AutoRune (index 2)
+            memset(g_Mods, 0, sizeof(g_Mods));
+            g_Mods[0] = true; // AutoRune is at index 0
+            
+            // First, inject into all currently running game instances
+            snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if (INVALID_HANDLE_VALUE != snapshot) {
+                process.dwSize = sizeof(process);
+                Process32FirstW(snapshot, &process);
+                
+                do {
+                    if (!wcscmp(process.szExeFile, TARGET_IMAGE_NAME)) {
+                        DoInjection(process.th32ProcessID, TARGET_IMAGE_NAME, g_Mods, false);
+                        MarkModEnabled(process.th32ProcessID, 2);
+                    }
+                } while (Process32NextW(snapshot, &process));
+                
+                CloseHandle(snapshot);
+            }
+            
+            // If /silent is present, keep monitoring for new processes
+            if (strstr(lpCmdLine, "/silent")) {
+                // Run silently in background, monitoring for new game instances
+                while (true) {
+                    // Check for new game processes
+                    pid = newProcesses.CheckForImageName(TARGET_IMAGE_NAME);
+                    if (-1 != pid) {
+                        DoInjection(pid, TARGET_IMAGE_NAME, g_Mods, true);
+                        MarkModEnabled(pid, 2);
+                    }
+                    
+                    // Check if any game is still running
+                    bool gameRunning = false;
+                    snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+                    if (INVALID_HANDLE_VALUE != snapshot) {
+                        process.dwSize = sizeof(process);
+                        Process32FirstW(snapshot, &process);
+                        do {
+                            if (!wcscmp(process.szExeFile, TARGET_IMAGE_NAME)) {
+                                gameRunning = true;
+                                break;
+                            }
+                        } while (Process32NextW(snapshot, &process));
+                        CloseHandle(snapshot);
+                    }
+                    
+                    // Exit if no game is running
+                    if (!gameRunning) {
+                        return 0;  // Exit silently
+                    }
+                    
+                    Sleep(1000); // Check every second
+                }
+            }
+            
+            return 0; // Exit after injection if not silent
+        }
+    }
+
     const int windowWidth = 300;
     const int windowHeight = 110 + ((sizeof(g_Mods) + 1) / 2) * 50;
     const char* windowName = "AE Boost";
@@ -442,8 +504,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
 
         int i = 0;
         bool temp;
-#define MOD(Name) temp = raylib::GuiCheckBox({ (i%2==1) * 135.0f + 35, (i / 2) * 50.0f + 45, 35, 35 }, ""#Name, g_Mods[i]); \
-if (!boosting) g_Mods[i] = temp; i++;
+#define MOD(Name) temp = raylib::GuiCheckBox({ (i%2==1) * 135.0f + 35, (i / 2) * 50.0f + 45, 35, 35 }, ""#Name, &g_Mods[i]); \
+i++;
          #include <ModList.txt>
 #undef MOD
 
@@ -484,8 +546,7 @@ if (!boosting) g_Mods[i] = temp; i++;
         }
         
         auto wasBoosting = boosting;
-        boosting = raylib::GuiToggle({80,((i/2) + (i%2))*50.0f + 50,140,40}, toggleText, wasBoosting);
-
+        boosting = raylib::GuiToggle({80,((i/2) + (i%2))*50.0f + 50,140,40}, toggleText, &boosting);
         if (!wasBoosting && boosting)
         {
             // inject into existing clients
