@@ -46,12 +46,13 @@ typedef ObjectData* (__thiscall* GET_OBJECT_FUNC)(u32* Id);
 #define VERSION "1.1.2"
 #define AE_BUILD 220
 #define GLOBAL_PTR (uint8_t**)0x747D50 // after ref to string containing "Launching"
-#define GLOBAL_SPELLS (Spells**)0x7A896C // passed to rune function
+#define GLOBAL_SPELLS (Spells**)0x7A8950 // passed to rune function
 #define GLOBAL_MANAGER (ObjectDataManager**)0x747F14 // a few lines above "Send frequency" string
 #define GLOBAL_ITEMS (Items**)0x7A88C0 // right above "Initialized Spell Manager" string
 #define GLOBAL_GET_OBJECT (GET_OBJECT_FUNC)0x408DF0 // called at end of case with "NMSG_TARGET_HEALTH" string
 #define XOR_KEY_OFFSET 0x4004C // offset used for key in xor function that calls net
 #define GLOBAL_CHAT (ChatManager**)0xB3FBD8 // a bit above "%s has died!\n" string
+#define GLOBAL_PTR_KEY_OFFSET 0x14
 #define SEND_IAT_ENTRY 15
 #define RECV_IAT_ENTRY 4
 #define RUNE_TYPE_OFFSET 0x5AC
